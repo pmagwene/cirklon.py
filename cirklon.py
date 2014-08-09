@@ -29,6 +29,10 @@ import csv
 import json
 from collections import OrderedDict
 
+
+track_controls = ["pgm", "quant%", "note%","noteC","velo%","veloC",
+                  "leng%","tbase","octave","knob1","knob2"]
+
 class Instrument(OrderedDict):
     def __init__(self, name, port=1, channel=1, multi=False, no_xpose=True, no_fts=True):
         OrderedDict.__init__(self)
@@ -42,6 +46,7 @@ class Instrument(OrderedDict):
         self.midi_details['no_fts'] = no_fts
         self.midi_details['track_values'] = self.track_values
         self[name] = self.midi_details
+        self.current_slot = 0
 
     def __repr__(self):
         return json.dumps(self)
@@ -52,11 +57,27 @@ class Instrument(OrderedDict):
         val = OrderedDict([ ('MIDI_CC', cc), ('label', label[:6]) ])
         self.track_values[key] = val
 
-    def add_ccs(self, iterable):
+    def add_track_control(self, slot, trkcontrol):
+        nslot = int(slot)
+        key = "slot_%d" % nslot
+        val = OrderedDict([ ('track_control', trkcontrol)])
+        self.track_values[key] = val
+
+    def add_slots(self, iterable):
         for row in iterable:
-            cc, label = int(row[0]), row[1]
-            nslot = len(self.track_values) + 1
-            self.add_cc(nslot, cc, label)
+            nslot = self.current_slot + 1
+            cc, label = row[0], row[1]
+            if cc == "---":
+                pass
+            elif cc in track_controls:
+                self.add_track_control(nslot, cc)
+            else:
+                cc = int(cc)
+                self.add_cc(nslot, cc, label)
+            self.current_slot += 1
+
+    def skip_slot(self):
+        self.current_slot += 1
 
 
 
@@ -84,12 +105,12 @@ def instrument_from_csv(fname, name='Generic', port=1, channel=1,
                             multi=False, no_xpose=False, no_fts=False, has_header=True):
     if isinstance(fname, str):
         fname = open(fname, 'rU')
-    ccdata = csv.reader(fname)
+    slotdata = csv.reader(fname)
 
     if has_header:
-        next(ccdata, None)  # iterate past header field
+        next(slotdata, None)  # iterate past header field
     instrument = Instrument(name, port, channel, multi, no_xpose, no_fts)
-    instrument.add_ccs(ccdata)
+    instrument.add_slots(slotdata)
     idef = InstrumentDef()
     idef.add(instrument)
     return idef
@@ -100,9 +121,9 @@ def slot_hack(instrdef):
     """An ugly hack to deal with limitation of 96 track values"""
     jsonstr = instrdef.to_json()
     instr = instrdef.instruments[0]
-    if len(instr.track_values) < 96:
+    if instr.current_slot <= 96:
         return jsonstr
-    for i in range(97, len(instr.track_values)+1):
+    for i in range(97, instr.current_slot+1):
         hackslot = "slot_%d" % i
         jsonstr = jsonstr.replace(hackslot, "slot_96")
     return jsonstr
