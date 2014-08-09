@@ -32,7 +32,7 @@ from collections import OrderedDict
 class Instrument(OrderedDict):
     def __init__(self, name, port=1, channel=1, multi=False, no_xpose=True, no_fts=True):
         OrderedDict.__init__(self)
-        self.name = name
+        self.name = name[:9]  # max instrument name is 9 chars
         self.track_values = OrderedDict()
         self.midi_details = OrderedDict()
         self.midi_details['midi_port'] = port
@@ -47,7 +47,8 @@ class Instrument(OrderedDict):
         return json.dumps(self)
 
     def add_cc(self, slot, cc, label):
-        key = "slot_%d" % slot
+        nslot = int(slot)
+        key = "slot_%d" % nslot
         val = OrderedDict([ ('MIDI_CC', cc), ('label', label[:6]) ])
         self.track_values[key] = val
 
@@ -62,8 +63,10 @@ class Instrument(OrderedDict):
 class InstrumentDef(OrderedDict):
     def __init__(self, *args):
         OrderedDict.__init__(self, *args)
+        self.instruments = []
 
     def add(self, instrument):
+        self.instruments.append(instrument)
         self[instrument.name] = instrument.midi_details
         
     def to_json(self):
@@ -90,6 +93,20 @@ def instrument_from_csv(fname, name='Generic', port=1, channel=1,
     idef = InstrumentDef()
     idef.add(instrument)
     return idef
+
+
+
+def slot_hack(instrdef):
+    """An ugly hack to deal with limitation of 96 track values"""
+    jsonstr = instrdef.to_json()
+    instr = instrdef.instruments[0]
+    if len(instr.track_values) < 96:
+        return jsonstr
+    for i in range(97, len(instr.track_values)+1):
+        hackslot = "slot_%d" % i
+        jsonstr = jsonstr.replace(hackslot, "slot_96")
+    return jsonstr
+
 
 
 
@@ -125,5 +142,6 @@ if __name__ == '__main__':
                                         multi=args.multi, no_xpose=args.noxpose, 
                                         no_fts=args.nofts, has_header=args.noheader)
 
-    args.outfile.write(instrumentdef.to_json())
+    jsonstr  = slot_hack(instrumentdef)
+    args.outfile.write(jsonstr)
 
